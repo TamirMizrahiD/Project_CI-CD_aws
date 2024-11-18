@@ -1,0 +1,54 @@
+
+
+pipeline {
+    
+    agent any
+    
+    environment {
+        AWS_ACCOUNT_ID="132735280818"
+        REPOSITORY_URI= "${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${IMAGE_REPO_NAME}"
+        AWS_DEFAULT_REGION= "us-east-1"
+        IMAGE_REPO_NAME= "tamir_hello"
+        IMAGE_TAG= "latest"
+        REGISTRY = "132735280818.dkr.ecr.us-east-1.amazonaws.com"
+    }
+    
+    stages {
+        stage ('Checkout') {
+            steps {
+              git branch: 'main', credentialsId: 'ec689588-7124-4402-b893-323562c37e2d', url: 'https://github.com/tamirmiz631/tamir_hello_p'
+            }
+        }
+        stage ('clean images') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh 'docker rmi -f $(docker images -aq)'
+                }
+            }
+        }
+        stage('Connect to AWS') {
+            steps{
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding' ,
+                    credentialsId: 'tamir-aws-creds' ,
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID' ,
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                        
+                      sh 'aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 132735280818.dkr.ecr.us-east-1.amazonaws.com'
+                      sh 'docker build -t ${IMAGE_REPO_NAME}:${IMAGE_TAG} --platform linux/X86_64 .'
+                      sh 'docker tag ${IMAGE_REPO_NAME}:${IMAGE_TAG} ${REGISTRY}/${IMAGE_REPO_NAME}:${IMAGE_TAG}'
+                      sh 'docker push ${REGISTRY}/${IMAGE_REPO_NAME}:${IMAGE_TAG}'
+                      sh 'aws ecs update-service --cluster tamir_hello --service tamirhello --force-new-deployment --region us-east-1'
+                    }
+            }
+        }
+        stage ('clean images 2') {
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh 'docker rmi -f $(docker images -aq)'
+                }
+            }
+        }
+
+    }
+}
